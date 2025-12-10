@@ -24,3 +24,100 @@ You can add options to executable code like this
 ```
 
 The `echo: false` option disables the printing of code (only output is displayed).
+
+```{r}
+library(tidyverse)
+```
+
+```{r}
+library(readr)
+library(dplyr)
+
+income_df <- read_csv(
+  file = "C:/Users/szian/OneDrive/文件/GitHub/r_data_viz_reports/reports/income_distribution_by_village_2022_newTaipei.csv",
+  locale = locale(encoding = "UTF-8")
+) |>
+  mutate(
+    `Region Name` = as.character(`Region Name`),
+    `Village Name` = as.character(`Village Name`)
+  )
+
+```
+
+```{r}
+library(dplyr)
+
+income_df <- income_df |>
+  mutate(
+    income_per_household = `Total Comprehensive Income` / `Tax Units (Households)`
+  )
+
+```
+
+```{r}
+library(sf)
+library(dplyr)
+library(ggplot2)
+library(readr)
+library(stringr)
+
+village_sf <- sf::st_read(
+  "C:/Users/szian/OneDrive/文件/GitHub/r_data_viz_reports/data/raw/村(里)界(TWD97經緯度)1141031",
+  options = "ENCODING=UTF-8"
+)
+
+```
+
+```{r}
+village_newtaipei <- village_sf |>
+  dplyr::filter(COUNTYNAME == "新北市")
+
+```
+
+```{r}
+income_df <- read_csv(
+  "C:/Users/szian/OneDrive/文件/GitHub/r_data_viz_reports/reports/income_distribution_by_village_2022_newTaipei.csv",
+  locale = locale(encoding = "UTF-8")
+) |>
+  mutate(
+    income_per_household =
+      `Total Comprehensive Income` / `Tax Units (Households)`
+  )
+
+```
+
+```{r}
+income_df <- income_df |>
+  mutate(
+    income_class = ntile(income_per_household, 3),
+    income_class = case_when(
+      income_class == 1 ~ "低",
+      income_class == 2 ~ "中",
+      income_class == 3 ~ "高"
+    )
+  )
+
+```
+
+```{r}
+village_income <- village_newtaipei |>
+  left_join(
+    income_df,
+    by = c("TOWNNAME" = "Region Name", "VILLNAME" = "Village Name")
+  )
+
+```
+
+```{r}
+ggplot(village_income) +
+  geom_sf(aes(fill = income_class), color = NA) +
+  scale_fill_manual(
+    values = c("低" = "#a6cee3", "中" = "#1f78b4", "高" = "#b2df8a")
+  ) +
+  labs(
+    title = "新北市各村里每戶綜合所得總額（低 / 中 / 高）",
+    fill = "所得分類"
+  ) +
+  theme_minimal()
+
+```
