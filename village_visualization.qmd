@@ -1,0 +1,45 @@
+---
+title: "Village Visualization"
+
+format: html
+---
+
+## Load Libraries
+
+```{r}
+library(tidyverse)
+library(sf)
+```
+
+## Read Data
+
+```{r}
+# Read the shapefile
+# Ensure the path is correct relative to the project root
+village_shp <- st_read("data/raw/村(里)界(TWD97經緯度)1141031/Village_Sanhe.shp")
+```
+
+## Visualization
+
+```{r}
+# Filter offshore islands using bbox (approx. Taiwan main island)
+bbox <- st_bbox(c(xmin = 119, xmax = 122.5, ymin = 21.5, ymax = 25.5), crs = st_crs(village_shp))
+village_shp_main <- st_crop(village_shp, bbox)
+
+# Read population data
+pop_data <- read_csv("data/raw/村(里)界(TWD97經緯度)1141031/village_household_population_statistics_2022.csv", 
+                     locale = locale(encoding = "Big5"))
+
+# Rename the second column to match the shapefile ID (assuming VILLCODE)
+# We use the second column based on inspection
+colnames(pop_data)[2] <- "VILLCODE"
+
+# Merge data
+village_shp_merged <- left_join(village_shp_main, pop_data, by = "VILLCODE")
+
+# Plot the map
+ggplot(data = village_shp_merged) +
+  geom_sf() +
+  theme_minimal() +
+  labs(title = "Village Sanhe Map (Main Island)")
+```
