@@ -1,0 +1,217 @@
+---
+title: "Income Distribution by Village in New Taipei City (2022)"
+date: today
+format:
+  html:
+    toc: true
+    number-sections: true
+    embed-resources: true
+    theme: cosmo
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+library(tidyverse)
+library(knitr)
+library(kableExtra)
+library(showtext)
+library(sf)
+library(ggmap)
+
+# Enable Chinese font support
+showtext_auto()
+# You might need to specify a font if the default doesn't work, e.g., font_add("SimHei", "simhei.ttf")
+```
+
+# Introduction
+
+This report analyzes the income distribution across villages in New Taipei City for the tax year 2022. The data source provides aggregate income statistics (mean, median, quartiles) for each village. We will explore wealth disparities, identify the wealthiest neighborhoods, and visualize the spatial distribution of income using maps.
+
+# Data Loading and Cleaning
+
+First, we load the income distribution dataset.
+
+```{r load-data}
+# Read CSV
+income_data <- read_csv("income_distribution_by_village_2022_newTaipei.csv")
+
+# Clean and renaming
+income_clean <- income_data %>%
+  rename(
+    Region = `Region Name`,
+    Village = `Village Name`,
+    Households = `Tax Units (Households)`,
+    Total_Income = `Total Comprehensive Income`,
+    Mean_Income = `Mean Income`,
+    Median_Income = `Median Income`,
+    Q1_Income = `1st Quartile Income`,
+    Q3_Income = `3rd Quartile Income`,
+    Std_Dev = `Standard Deviation`,
+    CV = `Coefficient of Variation`
+  ) %>%
+  mutate(
+    # Extract District from Region (e.g., "新北市新莊區" -> "新莊區")
+    District = str_remove(Region, "新北市"),
+    # Create a joining key
+    Join_Key = paste0(District, Village)
+  )
+
+# Preview
+head(income_clean) %>%
+  kable() %>%
+  kable_styling()
+```
+
+# Exploratory Data Analysis
+
+## Summary Statistics
+
+Let's look at the overall distribution of Mean and Median Income across all villages.
+
+```{r summary-stats}
+income_clean %>%
+  select(Mean_Income, Median_Income, Households) %>%
+  summary() %>%
+  kable() %>%
+  kable_styling()
+```
+
+## District Analysis
+
+We can compare income levels across different districts to see which areas are generally wealthier.
+
+```{r district-analysis, fig.height=6}
+district_stats <- income_clean %>%
+  group_by(District) %>%
+  summarise(
+    Avg_Mean_Income = mean(Mean_Income, na.rm = TRUE),
+    Avg_Median_Income = mean(Median_Income, na.rm = TRUE),
+    Village_Count = n()
+  ) %>%
+  arrange(desc(Avg_Median_Income))
+
+# Top 10 Districts by Average Median Income
+district_stats %>%
+  head(10) %>%
+  kable(caption = "Top 10 Districts by Average Median Income") %>%
+  kable_styling()
+
+# Boxplot of Median Income by District
+income_clean %>%
+  ggplot(aes(x = reorder(District, Median_Income), y = Median_Income)) +
+  geom_boxplot(fill = "skyblue", alpha = 0.7) +
+  coord_flip() +
+  labs(
+    title = "Distribution of Median Income by District",
+    x = "District",
+    y = "Median Income (Thousands NTD)"
+  ) +
+  theme_minimal()
+```
+
+## Wealthiest Villages
+
+Identifying the individual villages with the highest income.
+
+```{r top-villages}
+# Top 10 by Median Income
+income_clean %>%
+  arrange(desc(Median_Income)) %>%
+  select(District, Village, Median_Income, Mean_Income, Households) %>%
+  head(10) %>%
+  kable(caption = "Top 10 Villages by Median Income") %>%
+  kable_styling()
+```
+
+## Inequality Analysis
+
+The Coefficient of Variation (CV) gives us a sense of income inequality within each village (Standard Deviation / Mean).
+
+```{r inequality}
+# Scatterplot: Mean Income vs CV
+income_clean %>%
+  ggplot(aes(x = Mean_Income, y = CV)) +
+  geom_point(alpha = 0.5, color = "darkred") +
+  geom_smooth(method = "lm", color = "blue", se = FALSE) +
+  labs(
+    title = "Income Level vs. Inequality (CV)",
+    x = "Mean Income",
+    y = "Coefficient of Variation (Inequality)"
+  ) +
+  theme_minimal()
+```
+
+# Spatial Analysis
+
+We will now overlay this data on a map. We use a shapefile for village boundaries and `ggmap` for the background terrain map.
+
+```{r spatial-setup}
+# Load Shapefile
+# Note: Adjust path if running from a different directory location relative to project root
+shapefile_path <- "../data/raw/村(里)界(TWD97經緯度)1141031/VILLAGE_NLSC_11401031.shp"
+
+if (file.exists(shapefile_path)) {
+  village_sf <- st_read(shapefile_path, quiet = TRUE)
+  
+  # Filter for New Taipei City (County ID or Name usually used)
+  # Assuming COUNTYNAME column exists. 'New Taipei City' is '新北市'.
+  new_taipei_sf <- village_sf %>%
+    filter(COUNTYNAME == "新北市") %>%
+    mutate(
+      Join_Key = paste0(TOWNNAME, VILLNAME)
+    )
+  
+  # Join with Income Data
+  map_data <- new_taipei_sf %>%
+    left_join(income_clean, by = "Join_Key")
+    
+  # Transform CRS to 3857 (Web Mercator) for ggmap compatibility
+  map_data_3857 <- st_transform(map_data, 3857)
+  
+} else {
+  warning("Shapefile not found at specified path.")
+}
+```
+
+## Choropleth Map
+
+Using `ggmap` with Stadia Maps/Stamen Terrain tiles.
+
+```{r choropleth-map, fig.width=10, fig.height=10}
+# Register Stadia API Key
+register_stadiamaps("c03dd7db-8d7d-4d6d-9d12-7104a2fdbf9a", write = FALSE)
+
+# Get bounding box for New Taipei City (in lat/lon 4326 for get_stadiamap)
+bbox_sf <- st_transform(new_taipei_sf, 4326)
+bbox <- st_bbox(bbox_sf)
+names(bbox) <- c("left", "bottom", "right", "top")
+
+# Fetch Stamen Terrain Map
+# zoom level 11 or 12 typically covers a city well
+basemap <- get_stadiamap(
+  bbox = bbox,
+  maptype = "stamen_terrain",
+  zoom = 11
+)
+
+# Plot
+ggmap(basemap) +
+  geom_sf(
+    data = map_data_3857,
+    aes(fill = Median_Income),
+    inherit.aes = FALSE,
+    alpha = 0.7,
+    color = NA # Remove borders for gathering view, or use size=0.1
+  ) +
+  scale_fill_viridis_c(
+    option = "magma", 
+    direction = -1,
+    name = "Median Income"
+  ) +
+  labs(
+    title = "Median Income by Village in New Taipei City",
+    subtitle = "2022 Tax Year"
+  ) +
+  theme_minimal() +
+  coord_sf(datum = NA) # Prevent CRS mismatch warnings with ggmap
+```
