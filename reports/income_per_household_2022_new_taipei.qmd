@@ -11,6 +11,9 @@ This notebook documents how the per-village average comprehensive income per hou
 ```{r}
 library(dplyr)
 library(readr)
+library(sf)
+library(ggplot2)
+library(stringr)
 ```
 
 ## Load data
@@ -86,3 +89,53 @@ income_ntpc %>%
 
 - Monetary unit is not stated in the CSV; based on similar MOF tables it is likely thousand NTD—confirm with source metadata.
 - If differences appear between reported and calculated means, revisit unit assumptions and rounding rules from the source.
+
+## Map: classify mean income into low/mid/high
+
+Use the official village boundaries shapefile, keep only New Taipei, join on `COUNTYNAME + TOWNNAME + VILLNAME`, and classify the calculated mean income into terciles.
+
+```{r}
+shp_path <- "../data/raw/村(里)界(TWD97經緯度)1141031/VILLAGE_NLSC_11401031.shp"
+villages_sf <- st_read(shp_path, quiet = TRUE) %>%
+  filter(COUNTYNAME == "新北市") %>%
+  mutate(join_key = paste0(COUNTYNAME, TOWNNAME, VILLNAME))
+
+income_ntpc_geo <- income_ntpc %>%
+  mutate(
+    county = "新北市",
+    district = str_remove(region, "^新北市"),
+    join_key = paste0(county, district, village),
+    mean_class = ntile(mean_income_calc, 3),
+    mean_class = factor(mean_class, levels = 1:3, labels = c("Low", "Mid", "High"))
+  )
+
+income_map <- villages_sf %>%
+  left_join(income_ntpc_geo, by = "join_key")
+
+income_map %>%
+  summarize(
+    matched = sum(!is.na(mean_class)),
+    missing = sum(is.na(mean_class))
+  )
+```
+
+### Choropleth
+
+```{r}
+ggplot(income_map) +
+  geom_sf(aes(fill = mean_class), color = NA) +
+  scale_fill_manual(
+    values = c("Low" = "#d4eac7", "Mid" = "#74c476", "High" = "#006d2c"),
+    na.value = "gray90",
+    name = "Mean income (tercile)"
+  ) +
+  labs(
+    title = "New Taipei: Mean Comprehensive Income per Household (2022)",
+    subtitle = "Villages grouped into terciles of calculated mean income"
+  ) +
+  theme_void() +
+  theme(
+    legend.position = "right",
+    plot.title = element_text(face = "bold")
+  )
+```
