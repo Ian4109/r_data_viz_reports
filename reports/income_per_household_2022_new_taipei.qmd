@@ -122,6 +122,20 @@ income_map %>%
 ### Choropleth
 
 ```{r}
+y_range <- diff(range(st_bbox(income_map)[c("ymin", "ymax")]))
+
+top3 <- income_map %>%
+  filter(!is.na(mean_income_calc)) %>%
+  arrange(desc(mean_income_calc)) %>%
+  slice_head(n = 3) %>%
+  st_centroid()
+
+bottom3 <- income_map %>%
+  filter(!is.na(mean_income_calc)) %>%
+  arrange(mean_income_calc) %>%
+  slice_head(n = 3) %>%
+  st_centroid()
+
 ggplot(income_map) +
   geom_sf(aes(fill = mean_class), color = NA) +
   scale_fill_manual(
@@ -129,13 +143,29 @@ ggplot(income_map) +
     na.value = "gray90",
     name = "Mean income (tercile)"
   ) +
+  geom_sf_label(
+    data = top3,
+    aes(label = paste0(village, " (", round(mean_income_calc, 1), ")")),
+    nudge_y = y_range * 0.08,
+    size = 3,
+    label.size = 0
+  ) +
+  geom_sf_label(
+    data = bottom3,
+    aes(label = paste0(village, " (", round(mean_income_calc, 1), ")")),
+    nudge_y = -y_range * 0.08,
+    size = 3,
+    label.size = 0
+  ) +
   labs(
     title = "New Taipei: Mean Comprehensive Income per Household (2022)",
     subtitle = "Villages grouped into terciles of calculated mean income"
   ) +
+  coord_sf(clip = "off") +
   theme_void() +
   theme(
     legend.position = "right",
-    plot.title = element_text(face = "bold")
+    plot.title = element_text(face = "bold"),
+    plot.margin = margin(10, 30, 10, 30)
   )
 ```
